@@ -86,7 +86,7 @@ class WorldView:
         print("WorldView update took {} seconds".format(time.time() - s))
 
     @staticmethod
-    #@numba.vectorize(target="cuda")
+    @numba.vectorize(target="cuda")
     def calculate_ray(start_block, start_pos, ray, pos_diff, new_blocks, changed_blocks, old_blocks):
         current_block = start_block.block
         current_transform = start_block.transform
