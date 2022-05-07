@@ -26,7 +26,6 @@ class PlayPacketHandler:
             self.player.brand = packet.data.decode("utf-8")
 
     def on_keep_alive(self, packet):
-        print("Received keep alive")
         self.conn.current_keep_alive_id = None
 
     def on_player_position(self, packet):

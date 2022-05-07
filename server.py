@@ -13,6 +13,8 @@ class Server:
 
         self.listener = network.connection.ServerListener(self)
 
+        print("Server started")
+
         self.tick_loop()
 
     def tick_loop(self):

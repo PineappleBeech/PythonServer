@@ -35,7 +35,6 @@ class Player(entity.LivingEntity):
             self.conn.send_packet(play.UpdateViewPosition(x=new_position[0], z=new_position[2]))
         self.client_position = new_position
 
-    @profile
     def spawn_player(self, *args, **kwargs):
         self.conn.send_keep_alive()
 

@@ -2,7 +2,7 @@ import json
 
 import numba.experimental
 
-from util.util import Direction
+from util.util import Direction, AtomicInteger
 
 
 class BlockType:
@@ -14,7 +14,11 @@ class BlockType:
 
 
 class Block:
+    id_counter = AtomicInteger()
+
     def __init__(self, id, state=None):
+        self.id = Block.id_counter.increment_and_get()
+
         if isinstance(id, str):
             self.name = id
         elif isinstance(id, int):
@@ -70,6 +74,7 @@ class Transform:
             z = -z
         return x, y, z
 
+
 class SimpleBlock(Block):
     def __init__(self, id, state=None):
         super().__init__(id, state)
@@ -79,6 +84,12 @@ class SimpleBlock(Block):
         self.neighbors[direction] = (block, target_face)
         block.neighbors[target_face] = (self, direction)
 
+    def get_block(self, direction):
+        try:
+            return self.neighbors[direction][0]
+        except TypeError:
+            raise NoBlock("", 0)
+
 
 class BlockView:
     __slots__ = ["block", "transform"]
@@ -87,6 +98,7 @@ class BlockView:
         self.block = block
         self.transform = transform
         if self.transform is None:
+            return
             self.transform = Transform()
 
     def __eq__(self, other):
@@ -104,6 +116,54 @@ class BlockView:
 
     def get_id(self):
         return self.block.get_id()
+
+
+fast_block_type = numba.deferred_type()
+
+
+@numba.experimental.jitclass([
+    ("block_id", numba.int32),
+    ("id", numba.int32),
+    ("real", numba.boolean),
+    ("neighbors", numba.typeof(numba.typed.List.empty_list(numba.int32)))])
+class FastBlock:
+    def __init__(self, block_id, id, real):
+        self.block_id = block_id
+        self.id = id
+        self.real = real
+        self.neighbors = numba.typed.List.empty_list(numba.int32)
+
+    def get_block(self, direction):
+        if self.real:
+            return self.neighbors[direction]
+        else:
+            return self.id
+
+
+fast_block_type.define(FastBlock.class_type.instance_type)
+
+
+@numba.experimental.jitclass([
+    ("rotation", numba.int32),
+    ("flip_x", numba.boolean),
+    ("flip_y", numba.boolean)])
+class FastTransform:
+    def __init__(self, rotation, flip_x, flip_y):
+        self.rotation = rotation
+        self.flip_x = flip_x
+        self.flip_y = flip_y
+
+
+@numba.experimental.jitclass([
+    ("block", FastBlock.class_type.instance_type),
+    ("transform", FastTransform.class_type.instance_type)])
+class FastBlockView:
+    def __init__(self, block, transform):
+        self.block = block
+        self.transform = transform
+
+    def get_block(self, direction):
+        return FastBlockView(self.block.get_block(direction), self.transform)
 
 
 class NoBlock(Exception):

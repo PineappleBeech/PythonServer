@@ -119,7 +119,8 @@ class Connection:
 
 
     def send_packet(self, packet):
-        print("Sending packet:", packet)
+        if type(packet) not in [play.ChunkData, play.KeepAlive]:
+            print("Sending packet:", packet)
         data = buffer.Buffer()
         data.write_varint(packet.packet_id)
         packet.write(data)

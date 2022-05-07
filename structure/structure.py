@@ -24,30 +24,37 @@ class SimpleStructure:
             b = palette[i["state"]]
             self.blocks[(i["pos"][0], i["pos"][1], i["pos"][2])] = block.SimpleBlock(b["name"], b["state"])
 
+        self.interconnect_blocks()
+
+
+    def interconnect_blocks(self, repeat=False):
         for x in range(self.size[0]):
             for y in range(self.size[1]):
                 for z in range(self.size[2]):
                     try:
                         target_block = self.blocks[(x+1, y, z)]
                     except KeyError:
-                        target_block = self.blocks[(0, y, z)]
-                        self.blocks[(x, y, z)].connect(Direction.EAST, target_block, Direction.WEST)
+                        if repeat:
+                            target_block = self.blocks[(0, y, z)]
+                            self.blocks[(x, y, z)].connect(Direction.EAST, target_block, Direction.WEST)
                     else:
                         self.blocks[(x, y, z)].connect(Direction.EAST, target_block, Direction.WEST)
 
                     try:
                         target_block = self.blocks[(x, y+1, z)]
                     except KeyError:
-                        target_block = self.blocks[(x, 0, z)]
-                        self.blocks[(x, y, z)].connect(Direction.UP, target_block, Direction.DOWN)
+                        if repeat:
+                            target_block = self.blocks[(x, 0, z)]
+                            self.blocks[(x, y, z)].connect(Direction.UP, target_block, Direction.DOWN)
                     else:
                         self.blocks[(x, y, z)].connect(Direction.UP, target_block, Direction.DOWN)
 
                     try:
                         target_block = self.blocks[(x, y, z+1)]
                     except KeyError:
-                        target_block = self.blocks[(x, y, 0)]
-                        self.blocks[(x, y, z)].connect(Direction.SOUTH, target_block, Direction.NORTH)
+                        if repeat:
+                            target_block = self.blocks[(x, y, 0)]
+                            self.blocks[(x, y, z)].connect(Direction.SOUTH, target_block, Direction.NORTH)
                     else:
                         self.blocks[(x, y, z)].connect(Direction.SOUTH, target_block, Direction.NORTH)
 

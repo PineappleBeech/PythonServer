@@ -5,6 +5,7 @@ import math
 from enum import Enum
 
 import numba
+import numpy as np
 
 
 class AtomicInteger:
@@ -80,9 +81,32 @@ def round_away(value, target):
     else:
         return math.ceil(value)
 
-#@numba.njit
 def integers_between(start, end):
     if start > end:
-        return range(int(start), int(end), -1)
+        return range(math.floor(start), math.floor(end), -1)
     else:
-        return range(int(start) + 1, int(end) + 1)
+        return range(math.floor(start) + 1, math.floor(end) + 1)
+
+@numba.njit
+def integers_between_numba(start, end):
+    if start > end:
+        return range(math.floor(start), math.floor(end), -1)
+    else:
+        return range(math.floor(start) + 1, math.floor(end) + 1)
+
+# [0 1 2 3 4 5 6 7 8 9] -> [0 1 2 3 4 5 6 7] -> [-1 -1 0 1 2 3 4 5 6 7] 2
+# [0 1 2 3 4 5 6 7 8 9] -> [2 3 4 5 6 7 8 9] -> [2 3 4 5 6 7 8 9 -1 -1] -2
+def shift_and_pad(array, shift, pad_value):
+    x_start = -min(0, shift[0])
+    x_end = array.shape[0] - max(0, shift[0])
+    y_start = -min(0, shift[1])
+    y_end = array.shape[1] - max(0, shift[1])
+    z_start = -min(0, shift[2])
+    z_end = array.shape[2] - max(0, shift[2])
+    shrunk = array[x_start:x_end, y_start:y_end, z_start:z_end]
+    print(shrunk.shape)
+    result = np.pad(shrunk, ((max(0, shift[0]), -min(0, shift[0])),
+                   (max(0, shift[1]), -min(0, shift[1])),
+                   (max(0, shift[2]), -min(0, shift[2]))),
+                   'constant', constant_values=pad_value)
+    return result
