@@ -13,7 +13,7 @@ from util.util import shift_and_pad
 from util import raycasting
 
 
-BLOCK_RENDER_DISTANCE = 32
+BLOCK_RENDER_DISTANCE = 64
 
 USE_CUDA = False
 
@@ -22,6 +22,7 @@ class World:
     def __init__(self):
         self.hardcore = False
         self.players = []
+        self.entities = []
         self.dimension_type = DimensionType()
         self.blocks = {}
 
@@ -34,7 +35,14 @@ class World:
         return self.dimension_type.height
 
     def tick(self):
-        pass
+        for player in self.players:
+            player.tick()
+
+    def add_player(self, player):
+        self.players.append(player)
+
+    def remove_player(self, player):
+        self.players.remove(player)
 
 
 class WorldView:
@@ -53,13 +61,13 @@ class WorldView:
 
         self.STONE = block.Block("minecraft:stone")
         self.update_view()
+        print("Starting to load chunks...")
         self.load_chunks()
 
 
     @profile
     def update_view(self):
-        s = time.time()
-        new_player_position = (int(self.player.client_position[0]), int(self.player.client_position[1]), int(self.player.client_position[2]))
+        new_player_position = (math.floor(self.player.client_position[0]), math.floor(self.player.client_position[1]), math.floor(self.player.client_position[2]))
         block_pos_diff = (math.floor(new_player_position[0]) - self.last_player_block_pos[0],
                           math.floor(new_player_position[1]) - self.last_player_block_pos[1],
                           math.floor(new_player_position[2]) - self.last_player_block_pos[2])
@@ -76,18 +84,12 @@ class WorldView:
 
         #fast_new_blocks = np.zeros((BLOCK_RENDER_DISTANCE * 2 + 1, BLOCK_RENDER_DISTANCE * 2 + 1, BLOCK_RENDER_DISTANCE * 2 + 1), dtype=np.int32)
 
-        print("Preparation time:", time.time() - s)
-        s = time.time()
-        print("Block pos diff:", block_pos_diff)
 
         if USE_CUDA:
             device_new_blocks = WorldView.calculate_ray(raycasting.device_array, block_neighbor_ids)
             fast_new_blocks = device_new_blocks.copy_to_host()
         else:
             fast_new_blocks = WorldView.calculate_ray(raycasting.host_array, block_neighbor_ids)
-
-        print("Raycasting time:", time.time() - s)
-        s = time.time()
 
         #new_block_id_array = numpy.empty((self.block_render_distance*2+1, self.block_render_distance*2+1, self.block_render_distance*2+1), dtype=numpy.int32)
         #WorldView.map_new_blocks_to_array(new_block_id_array, fast_new_blocks, fast_block_map)
@@ -116,11 +118,12 @@ class WorldView:
             chunks[chunk_pos].append(real_pos)
 
         for chunk_pos in self.chunks:
-            for block_pos in chunks[chunk_pos]:
-                self.chunks[chunk_pos].update_heightmap(block_pos[0], block_pos[1], block_pos[2], self.get_block(*block_pos).block == self.AIR)
-                self.player.conn.send_packet(play.BlockChange(block_pos[0], block_pos[1], block_pos[2], self.get_block(*block_pos).get_id()))
+            if chunk_pos in chunks:
+                for block_pos in chunks[chunk_pos]:
+                    self.chunks[chunk_pos].update_heightmap(block_pos[0]%16, block_pos[1], block_pos[2]%16, self.get_block(*block_pos).block == self.AIR)
+                    self.player.conn.send_packet(play.BlockChange(block_pos[0], block_pos[1], block_pos[2], self.get_block(*block_pos).get_id()))
 
-        print("WorldView update took {} seconds".format(time.time() - s))
+        return
         #raise Exception
 
     @staticmethod
@@ -171,6 +174,29 @@ class WorldView:
 
     @staticmethod
     def map_blocks(blocks, current_block):
+        current_depth = [current_block]
+        current_depth_ids = [current_block.id]
+        next_depth = []
+        next_depth_ids = []
+        while len(current_depth) > 0:
+            for b in current_depth:
+                blocks[b.id] = b
+                for direction in range(6):
+                    try:
+                        next_block = b.get_block(direction)
+                    except block.NoBlock:
+                        continue
+                    else:
+                        if next_block.id not in blocks and next_block.id not in next_depth_ids and next_block.id not in current_depth_ids:
+                            next_depth.append(next_block)
+                            next_depth_ids.append(next_block.id)
+            current_depth = next_depth
+            current_depth_ids = next_depth_ids
+            next_depth = []
+            next_depth_ids = []
+
+
+        '''
         if current_block.id in blocks:
             return
 
@@ -183,6 +209,7 @@ class WorldView:
                 pass
             else:
                 WorldView.map_blocks(blocks, next_block)
+        '''
 
     @staticmethod
     def map_block_ids(blocks, block_neighbor_ids):
@@ -218,9 +245,9 @@ class WorldView:
 
     def get_block(self, x, y, z):
         if self.block_in_render_distance(x, y, z):
-            rx = x - BLOCK_RENDER_DISTANCE - self.last_player_block_pos[0]
-            ry = y - BLOCK_RENDER_DISTANCE - self.last_player_block_pos[1]
-            rz = z - BLOCK_RENDER_DISTANCE - self.last_player_block_pos[2]
+            rx = x + BLOCK_RENDER_DISTANCE - self.last_player_block_pos[0]
+            ry = y + BLOCK_RENDER_DISTANCE - self.last_player_block_pos[1]
+            rz = z + BLOCK_RENDER_DISTANCE - self.last_player_block_pos[2]
             if (x, y, z) in self.blocks:
                 return self.blocks[(x, y, z)]
             else:
@@ -243,7 +270,7 @@ class WorldView:
                and abs(self.last_player_block_pos[2] - z) <= self.block_render_distance
 
     def load_chunks(self):
-        mid_chunk_pos = (int(self.player.client_position[0] // 16), int(self.player.client_position[2] // 16))
+        mid_chunk_pos = (math.floor(self.player.client_position[0] // 16), math.floor(self.player.client_position[2] // 16))
         distance = 5
         for z in range(-distance, distance + 1):
             for x in range(-distance, distance + 1):
@@ -327,7 +354,7 @@ class ChunkView:
         if is_air:
             if self.heightmap[x + z * 16] == y:
                 for yy in range(y, self.world_view.world.min_y, -1):
-                    if self.get_block(x, yy, z).name != "minecraft:air":
+                    if self.get_block(x, yy, z).block.name != "minecraft:air":
                         self.heightmap[x + z * 16] = yy
                         break
         else:

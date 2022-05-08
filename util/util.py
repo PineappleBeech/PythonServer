@@ -68,6 +68,40 @@ class Direction:
         else:
             return (value + amount) % 4
 
+    @staticmethod
+    def to_string(value):
+        if value == 0:
+            return "north"
+        elif value == 1:
+            return "east"
+        elif value == 2:
+            return "south"
+        elif value == 3:
+            return "west"
+        elif value == 4:
+            return "up"
+        elif value == 5:
+            return "down"
+
+    @staticmethod
+    def from_string(value):
+        value = value.lower()
+
+        if value == "north":
+            return 0
+        elif value == "east":
+            return 1
+        elif value == "south":
+            return 2
+        elif value == "west":
+            return 3
+        elif value == "up":
+            return 4
+        elif value == "down":
+            return 5
+        else:
+            raise ValueError("Unknown direction: {}".format(value))
+
 
 def round_towards(value, target):
     if value < target:
@@ -104,7 +138,6 @@ def shift_and_pad(array, shift, pad_value):
     z_start = -min(0, shift[2])
     z_end = array.shape[2] - max(0, shift[2])
     shrunk = array[x_start:x_end, y_start:y_end, z_start:z_end]
-    print(shrunk.shape)
     result = np.pad(shrunk, ((max(0, shift[0]), -min(0, shift[0])),
                    (max(0, shift[1]), -min(0, shift[1])),
                    (max(0, shift[2]), -min(0, shift[2]))),

@@ -80,9 +80,21 @@ class SimpleBlock(Block):
         super().__init__(id, state)
         self.neighbors = [None, None, None, None, None, None]
 
+    def __repr__(self):
+        return f"Block {self.name.removeprefix('minecraft:')} at {self.pos_in_structure}"
+
     def connect(self, direction, block, target_face):
         self.neighbors[direction] = (block, target_face)
         block.neighbors[target_face] = (self, direction)
+
+    def disconnect(self, direction):
+        try:
+            block, target_face = self.neighbors[direction]
+        except TypeError:
+            pass
+        else:
+            block.neighbors[target_face] = None
+            self.neighbors[direction] = None
 
     def get_block(self, direction):
         try:

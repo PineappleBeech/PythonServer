@@ -1,3 +1,6 @@
+import math
+import time
+
 from line_profiler_pycharm import profile
 
 import entity.entity as entity
@@ -7,6 +10,7 @@ import nbt
 from network.clientbound import play
 from structure import structure
 from util.raycasting import path, path_to_list, follow_directions
+from util.util import Direction
 
 
 class Player(entity.LivingEntity):
@@ -15,6 +19,14 @@ class Player(entity.LivingEntity):
         self.conn = conn
         self.gamemode = 0
         self.thread = util.TaskExecutor()
+        self.is_spawned = False
+
+    def tick(self):
+        if self.is_spawned:
+            super().tick()
+            if time.time() - self.last_world_view_update > 0.2:
+                self.thread.add_task(self.world_view.update_view)
+                self.last_world_view_update = time.time()
 
     @property
     def position(self):
@@ -30,17 +42,21 @@ class Player(entity.LivingEntity):
 
     def move(self, x, y, z):
         new_position = (self.client_position[0] + x, self.client_position[1] + y, self.client_position[2] + z)
-        self.block = follow_directions(self.block, path_to_list(path(self.client_position, new_position)))
-        if (self.client_position[0] // 16, self.client_position[2] // 16) != (new_position[0] // 16, new_position[2] // 16):
-            self.conn.send_packet(play.UpdateViewPosition(x=new_position[0], z=new_position[2]))
+        self.block = follow_directions(self.block, path(self.client_position, new_position))
         self.client_position = new_position
+
+        if (self.client_position[0] // 16, self.client_position[2] // 16) != (new_position[0] // 16, new_position[2] // 16):
+            self.conn.send_packet(play.UpdateViewPosition(x=math.floor(new_position[0]//16), z=math.floor(new_position[0]//16)))
+
+    def move_to(self, x, y, z):
+        self.move(x - self.client_position[0], y - self.client_position[1], z - self.client_position[2])
 
     def spawn_player(self, *args, **kwargs):
         self.conn.send_keep_alive()
 
         super().__init__(*args, **kwargs)
-        spawn_house = structure.SimpleStructure("basic_room")
-        self.block = spawn_house.blocks[(5, 2, 5)]
+        spawn_house = structure.SimpleStructure("simple_portal_room")
+        self.block = spawn_house.blocks[spawn_house.spawn_pos]
 
         self.client_position = (0.5, 100.5, 0.5)
 
@@ -84,9 +100,13 @@ class Player(entity.LivingEntity):
         self.conn.send_packet(play.PluginMessage("minecraft:brand", bytes("Peter"*17, "utf-8")))
 
         self.world_view = world.WorldView(self.world, self)
+        self.last_world_view_update = time.time()
 
         self.conn.send_packet(play.SpawnPosition(0, 0, 0, 0))
         self.conn.send_packet(play.PlayerPositionAndLook(*self.client_position, *self.rotation, 0))
+
+        self.world.add_player(self)
+        self.is_spawned = True
 
 class PlayerOptions:
     def __init__(self, locale, view_distance, chat_mode, chat_colors, skin_flags, main_hand, text_filtering, server_listings):

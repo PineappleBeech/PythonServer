@@ -76,7 +76,13 @@ def path(start, end):
     return steps
 
 
-def path_og(start, end):
+@numba.cuda.jit(device=True)
+def path(start, end):
+    """
+    Finds all grid edges intersecting the ray from start to end.
+    Returns an integer with each 3 bits representing each intersection.
+    """
+
     direction = (end[0] - start[0], end[1] - start[1], end[2] - start[2])
     length = (direction[0] ** 2 + direction[1] ** 2 + direction[2] ** 2) ** 0.5
     if length == 0:
@@ -87,13 +93,13 @@ def path_og(start, end):
     y_steps = []
     z_steps = []
 
-    for x in integers_between(start[0], end[0]):
+    for x in integers_between_numba(start[0], end[0]):
         x_steps.append((x - start[0]) / direction[0])
 
-    for y in integers_between(start[1], end[1]):
+    for y in integers_between_numba(start[1], end[1]):
         y_steps.append((y - start[1]) / direction[1])
 
-    for z in integers_between(start[2], end[2]):
+    for z in integers_between_numba(start[2], end[2]):
         z_steps.append((z - start[2]) / direction[2])
 
     x_counter = 0
@@ -148,7 +154,8 @@ def follow_directions(start_block, directions):
     """
     current_block = start_block
     for direction in directions:
-        current_block = current_block.get_block(direction)
+        if direction != -1:
+            current_block = current_block.get_block(direction)
 
     return current_block
 

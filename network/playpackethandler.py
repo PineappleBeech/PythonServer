@@ -29,14 +29,17 @@ class PlayPacketHandler:
         self.conn.current_keep_alive_id = None
 
     def on_player_position(self, packet):
-        self.player.position = (packet.x, packet.y, packet.z)
-        self.player.on_ground = packet.on_ground
+        if self.player.is_spawned:
+            self.player.move_to(packet.x, packet.y, packet.z)
+            self.player.on_ground = packet.on_ground
 
     def on_player_position_and_rotation(self, packet):
-        self.player.position = (packet.x, packet.y, packet.z)
-        self.player.rotation = (packet.yaw, packet.pitch)
-        self.player.on_ground = packet.on_ground
+        if self.player.is_spawned:
+            self.player.move_to(packet.x, packet.y, packet.z)
+            self.player.rotation = (packet.yaw, packet.pitch)
+            self.player.on_ground = packet.on_ground
 
     def on_player_rotation(self, packet):
-        self.player.rotation = (packet.yaw, packet.pitch)
-        self.player.on_ground = packet.on_ground
+        if self.player.is_spawned:
+            self.player.rotation = (packet.yaw, packet.pitch)
+            self.player.on_ground = packet.on_ground
