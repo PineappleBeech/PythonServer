@@ -5,17 +5,23 @@ import numba
 import numpy
 from line_profiler_pycharm import profile
 import numpy as np
+from numba import cuda
 
 import nbt
 from block import block
 from network.clientbound import play
-from util.util import shift_and_pad
+from util.util import shift_and_pad, integers_between_numba
+from util.constants import BLOCK_RENDER_DISTANCE
 from util import raycasting
 
+USE_CUDA = True
 
-BLOCK_RENDER_DISTANCE = 64
+host_array_of_indexes = np.array([[[[x, y, z] for x in range(BLOCK_RENDER_DISTANCE * 2 + 1)]
+                                   for y in range(BLOCK_RENDER_DISTANCE * 2 + 1)]
+                                  for z in range(BLOCK_RENDER_DISTANCE * 2 + 1)], dtype=np.int32)
 
-USE_CUDA = False
+if USE_CUDA:
+    device_array_of_indexes = numba.cuda.to_device(host_array_of_indexes)
 
 
 class World:
@@ -67,6 +73,8 @@ class WorldView:
 
     @profile
     def update_view(self):
+        s = time.time()
+
         new_player_position = (math.floor(self.player.client_position[0]), math.floor(self.player.client_position[1]), math.floor(self.player.client_position[2]))
         block_pos_diff = (math.floor(new_player_position[0]) - self.last_player_block_pos[0],
                           math.floor(new_player_position[1]) - self.last_player_block_pos[1],
@@ -84,12 +92,19 @@ class WorldView:
 
         #fast_new_blocks = np.zeros((BLOCK_RENDER_DISTANCE * 2 + 1, BLOCK_RENDER_DISTANCE * 2 + 1, BLOCK_RENDER_DISTANCE * 2 + 1), dtype=np.int32)
 
+        if time.time() - s > 0.1:
+            print("Mapping blocks took:", time.time() - s)
+        s = time.time()
 
         if USE_CUDA:
             device_new_blocks = WorldView.calculate_ray(raycasting.device_array, block_neighbor_ids)
             fast_new_blocks = device_new_blocks.copy_to_host()
         else:
             fast_new_blocks = WorldView.calculate_ray(raycasting.host_array, block_neighbor_ids)
+
+        if time.time() - s > 0.1:
+            print("Calculating ray took:", time.time() - s)
+        s = time.time()
 
         #new_block_id_array = numpy.empty((self.block_render_distance*2+1, self.block_render_distance*2+1, self.block_render_distance*2+1), dtype=numpy.int32)
         #WorldView.map_new_blocks_to_array(new_block_id_array, fast_new_blocks, fast_block_map)
@@ -122,6 +137,10 @@ class WorldView:
                 for block_pos in chunks[chunk_pos]:
                     self.chunks[chunk_pos].update_heightmap(block_pos[0]%16, block_pos[1], block_pos[2]%16, self.get_block(*block_pos).block == self.AIR)
                     self.player.conn.send_packet(play.BlockChange(block_pos[0], block_pos[1], block_pos[2], self.get_block(*block_pos).get_id()))
+
+        if time.time() - s > 0.1:
+            print("Updating chunks took:", time.time() - s)
+        s = time.time()
 
         return
         #raise Exception

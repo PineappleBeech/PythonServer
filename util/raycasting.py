@@ -4,8 +4,10 @@ import pickle
 
 import numba
 import numpy as np
+from numba import cuda
 
 from util.util import round_towards, round_away, integers_between, Direction, integers_between_numba
+from util.constants import BLOCK_RENDER_DISTANCE, BLOCK_RENDER_DISTANCE_TIMES_THREE
 
 NORTH = 0x00
 EAST = 0x01
@@ -76,8 +78,8 @@ def path(start, end):
     return steps
 
 
-@numba.cuda.jit(device=True)
-def path(start, end):
+@cuda.jit(device=True)
+def path_gpu(start, end, out):
     """
     Finds all grid edges intersecting the ray from start to end.
     Returns an integer with each 3 bits representing each intersection.
@@ -85,55 +87,66 @@ def path(start, end):
 
     direction = (end[0] - start[0], end[1] - start[1], end[2] - start[2])
     length = (direction[0] ** 2 + direction[1] ** 2 + direction[2] ** 2) ** 0.5
+
     if length == 0:
-        return [-1]
+        out[0] = -1
+        return out
     direction = (direction[0] / length, direction[1] / length, direction[2] / length)
 
-    x_steps = []
-    y_steps = []
-    z_steps = []
+    x_steps = cuda.local.array(BLOCK_RENDER_DISTANCE, dtype=np.int32)
+    y_steps = cuda.local.array(BLOCK_RENDER_DISTANCE, dtype=np.int32)
+    z_steps = cuda.local.array(BLOCK_RENDER_DISTANCE, dtype=np.int32)
 
+    x_counter = 0
     for x in integers_between_numba(start[0], end[0]):
-        x_steps.append((x - start[0]) / direction[0])
+        x_steps[x_counter] = (x - start[0]) / direction[0]
+        x_counter += 1
 
+    y_counter = 0
     for y in integers_between_numba(start[1], end[1]):
-        y_steps.append((y - start[1]) / direction[1])
+        y_steps[y_counter] = (y - start[1]) / direction[1]
+        y_counter += 1
 
+    z_counter = 0
     for z in integers_between_numba(start[2], end[2]):
-        z_steps.append((z - start[2]) / direction[2])
+        z_steps[z_counter] = (z - start[2]) / direction[2]
+        z_counter += 1
 
+    x_len = x_counter
+    y_len = y_counter
+    z_len = z_counter
+    x_steps[x_counter] = math.inf
+    y_steps[y_counter] = math.inf
+    z_steps[z_counter] = math.inf
     x_counter = 0
     y_counter = 0
     z_counter = 0
-    x_len = len(x_steps)
-    y_len = len(y_steps)
-    z_len = len(z_steps)
-    x_steps.append(math.inf)
-    y_steps.append(math.inf)
-    z_steps.append(math.inf)
     x_current = x_steps[x_counter]
     y_current = y_steps[y_counter]
     z_current = z_steps[z_counter]
     x_direction = EAST if start[0] < end[0] else WEST
     y_direction = UP if start[1] < end[1] else DOWN
     z_direction = SOUTH if start[2] < end[2] else NORTH
-    steps = []
+    counter = 0
 
     while x_counter < x_len or y_counter < y_len or z_counter < z_len:
         if x_current < y_current and x_current < z_current:
             x_counter += 1
             x_current = x_steps[x_counter]
-            steps.append(x_direction)
+            out[counter] = x_direction
         elif y_current < z_current:
             y_counter += 1
             y_current = y_steps[y_counter]
-            steps.append(y_direction)
+            out[counter] = y_direction
         else:
             z_counter += 1
             z_current = z_steps[z_counter]
-            steps.append(z_direction)
+            out[counter] = z_direction
+        counter += 1
 
-    return steps
+    out[counter] = -1
+
+    return out
 
 
 def path_to_list(path):

@@ -6,6 +6,7 @@ from enum import Enum
 
 import numba
 import numpy as np
+from util.vector import Vec3
 
 
 class AtomicInteger:
@@ -98,6 +99,38 @@ class Direction:
         elif value == "up":
             return 4
         elif value == "down":
+            return 5
+        else:
+            raise ValueError("Unknown direction: {}".format(value))
+
+    @staticmethod
+    def to_vector(value):
+        if value == 0:
+            return Vec3(0, 0, -1)
+        elif value == 1:
+            return Vec3(1, 0, 0)
+        elif value == 2:
+            return Vec3(0, 0, 1)
+        elif value == 3:
+            return Vec3(-1, 0, 0)
+        elif value == 4:
+            return Vec3(0, 1, 0)
+        elif value == 5:
+            return Vec3(0, -1, 0)
+
+    @staticmethod
+    def from_vector(value):
+        if value == Vec3(0, 0, -1):
+            return 0
+        elif value == Vec3(1, 0, 0):
+            return 1
+        elif value == Vec3(0, 0, 1):
+            return 2
+        elif value == Vec3(-1, 0, 0):
+            return 3
+        elif value == Vec3(0, 1, 0):
+            return 4
+        elif value == Vec3(0, -1, 0):
             return 5
         else:
             raise ValueError("Unknown direction: {}".format(value))
