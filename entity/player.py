@@ -43,10 +43,12 @@ class Player(entity.LivingEntity):
     def move(self, x, y, z):
         new_position = (self.client_position[0] + x, self.client_position[1] + y, self.client_position[2] + z)
         self.block = follow_directions(self.block, path(self.client_position, new_position))
+        old_position = self.client_position
         self.client_position = new_position
 
-        if (self.client_position[0] // 16, self.client_position[2] // 16) != (new_position[0] // 16, new_position[2] // 16):
-            self.conn.send_packet(play.UpdateViewPosition(x=math.floor(new_position[0]//16), z=math.floor(new_position[0]//16)))
+        if (old_position[0] // 16, old_position[2] // 16) != (new_position[0] // 16, new_position[2] // 16):
+            self.conn.send_packet(play.UpdateViewPosition(x=math.floor(new_position[0]//16), z=math.floor(new_position[2]//16)))
+            self.world_view.change_chunk(math.floor(new_position[0]//16), math.floor(new_position[2]//16))
 
     def move_to(self, x, y, z):
         self.move(x - self.client_position[0], y - self.client_position[1], z - self.client_position[2])
@@ -55,7 +57,7 @@ class Player(entity.LivingEntity):
         self.conn.send_keep_alive()
 
         super().__init__(*args, **kwargs)
-        spawn_house = structure.SimpleStructure("simple_portal_room")
+        spawn_house = structure.SimpleStructure("less_simple_portal_room", self.world)
         self.block = spawn_house.blocks[spawn_house.spawn_pos]
 
         self.client_position = (0.5, 100.5, 0.5)

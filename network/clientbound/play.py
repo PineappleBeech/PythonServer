@@ -36,6 +36,18 @@ class PluginMessage(ClientBoundPlayPacket):
         buf.write(self.data)
 
 
+class UnloadChunk(ClientBoundPlayPacket):
+    packet_id = 0x1D
+
+    def __init__(self, x, z):
+        self.x = x
+        self.z = z
+
+    def write(self, buf):
+        buf.write_int(self.x)
+        buf.write_int(self.z)
+
+
 class KeepAlive(ClientBoundPlayPacket):
     packet_id = 0x21
 
@@ -243,6 +255,35 @@ class PlayerPositionAndLook(ClientBoundPlayPacket):
         buf.write_byte(flags)
         buf.write_varint(self.teleport_id)
         buf.write_bool(self.dismount_vehicle)
+
+
+class MultiBlockChange(ClientBoundPlayPacket):
+    packet_id = 0x3F
+
+    def __init__(self, chunk_x, chunk_z, section, blocks):
+        self.chunk_x = chunk_x
+        self.chunk_z = chunk_z
+        self.section = section
+        self.blocks = blocks
+
+    def write(self, buf):
+        #if self.chunk_x < 0:
+            #self.chunk_x = self.chunk_x | (1 << 21)
+        #if self.chunk_z < 0:
+            #self.chunk_z = self.chunk_z | (1 << 21)
+
+        self.chunk_x = self.chunk_x & ((1 << 22) - 1)
+        self.chunk_z = self.chunk_z & ((1 << 22) - 1)
+
+        pos = (self.chunk_x << 42) | (self.chunk_z << 20) | self.section
+        buf.write_ulong(pos)
+        buf.write_bool(True)
+        buf.write_varint(len(self.blocks))
+        for block in self.blocks:
+            x, y, z, block_id = block
+            x, y, z = x % 16, y % 16, z % 16
+            number = (block_id << 12) | (x << 8) | (z << 4) | y
+            buf.write_varlong(number)
 
 
 class UpdateViewPosition(ClientBoundPlayPacket):

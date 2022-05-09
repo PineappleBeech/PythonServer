@@ -6,10 +6,13 @@ from util.vector import Vec3
 
 
 class SimpleStructure:
-    def __init__(self, path):
+    def __init__(self, path, world):
         self.path = path
+        self.world = world
         self.spawn_pos = None
+        print("Loading structure " + path)
         self.load_structure()
+        print("Structure loaded")
 
     def load_structure(self):
         self.blocks = {}
@@ -55,6 +58,9 @@ class SimpleStructure:
             self.blocks[i.pos].disconnect(i.direction)
             self.blocks[target_jig.pos].disconnect(target_jig.direction)
             self.blocks[i.pos].connect(i.direction, self.blocks[target_jig.pos], target_jig.direction)
+
+        for i in self.blocks.values():
+            self.world.add_block(i)
 
 
     def interconnect_blocks(self, repeat=False):
@@ -130,7 +136,7 @@ class Command:
                 side = width // 2
 
                 for x in range(-side, side+1):
-                    for y in range(height):
+                    for y in range(-1, height):
                         start_pos = self.pos + right * x + up * y
                         end_pos = target_pos + target_left * x + up * y
                         structure.blocks[start_pos].disconnect(self.direction)

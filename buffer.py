@@ -2,6 +2,8 @@ import io
 import struct
 import uuid
 
+from line_profiler_pycharm import profile
+
 import nbt
 
 continue_bit = 0x80
@@ -15,21 +17,27 @@ class Buffer:
             self.buffer: bytearray = bytearray(buffer.read())
             buffer.close()
 
+        self.read_index = 0
+
     def write(self, data):
         self.buffer.extend(bytes(data))
 
     def read(self, length=-1):
         if length == -1:
-            return self.buffer
+            return self.buffer[self.read_index:]
         else:
-            while len(self.buffer) < length:
+            while len(self.buffer) - self.read_index < length:
                 pass
-            data = self.buffer[:length]
-            self.buffer = self.buffer[length:]
+            data = self.buffer[self.read_index:self.read_index + length]
+            self.read_index += length
             return data
 
+        if self.read_index > 1024:
+            self.buffer = self.buffer[self.read_index:]
+            self.read_index = 0
+
     def getvalue(self):
-        return self.buffer
+        return self.buffer[self.read_index:]
 
     def seek(self, offset, whence=0):
         if offset == 0:
@@ -117,7 +125,7 @@ class Buffer:
         if integer < 0:
             integer = (1 << 32) + integer
 
-        if integer.bit_length() > 32:
+        if integer >= (1 << 32):
             raise ValueError("Integer too large")
 
         while integer > 0x7F:
@@ -145,7 +153,7 @@ class Buffer:
         if long < 0:
             long = (1 << 64) + long
 
-        if long.bit_length() > 64:
+        if long >= (1 << 64):
             raise ValueError("Long too large")
 
         while long > 0x7F:

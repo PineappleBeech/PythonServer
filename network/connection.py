@@ -60,6 +60,7 @@ class Connection:
         self.buffer = buffer.Buffer()
         self.thread = threading.Thread(target=self.run, daemon=True)
         self.compress = False
+        self.send_lock = threading.Lock()
 
         self.encrypt = False
         self.encryption_cipher = None
@@ -119,7 +120,7 @@ class Connection:
 
 
     def send_packet(self, packet):
-        if type(packet) not in [play.ChunkData, play.KeepAlive, play.BlockChange]:
+        if type(packet) not in [play.ChunkData, play.KeepAlive, play.BlockChange, play.UnloadChunk, play.MultiBlockChange, play.UpdateViewPosition]:
             print("Sending packet:", packet)
         data = buffer.Buffer()
         data.write_varint(packet.packet_id)
@@ -129,10 +130,11 @@ class Connection:
         send_buffer = buffer.Buffer()
         send_buffer.write_varint(len(data.getvalue()))
         send_buffer.write(data.getvalue())
-        if self.encrypt:
-            self.sock.send(self.encryptor.update(send_buffer.getvalue()))
-        else:
-            self.sock.send(send_buffer.getvalue())
+        with self.send_lock:
+            if self.encrypt:
+                self.sock.send(self.encryptor.update(send_buffer.getvalue()))
+            else:
+                self.sock.send(send_buffer.getvalue())
 
 
     def dissconnect(self):

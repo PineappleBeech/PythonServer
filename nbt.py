@@ -7,7 +7,7 @@ import gzip
 class NBT_Tag:
     def __init__(self, value):
         if type(value) is buffer.Buffer:
-                self.read(value)
+            self.read(value)
         else:
             self.value = value
 

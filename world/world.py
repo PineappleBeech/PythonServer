@@ -11,7 +11,7 @@ import nbt
 from block import block
 from network.clientbound import play
 from util.util import shift_and_pad, integers_between_numba
-from util.constants import BLOCK_RENDER_DISTANCE
+from util.constants import BLOCK_RENDER_DISTANCE, CHUNK_RENDER_DISTANCE
 from util import raycasting
 
 USE_CUDA = True
@@ -31,6 +31,9 @@ class World:
         self.entities = []
         self.dimension_type = DimensionType()
         self.blocks = {}
+        self.block_neighbors_by_index = np.zeros((len(self.blocks), 6), dtype=np.int32)
+        self.block_index_to_id = np.zeros(len(self.blocks), dtype=np.int32)
+        self.block_neighbors_by_index_needs_update = False
 
     @property
     def min_y(self):
@@ -49,6 +52,32 @@ class World:
 
     def remove_player(self, player):
         self.players.remove(player)
+
+    def add_block(self, block):
+        self.blocks[block.id] = block
+        self.block_neighbors_by_index_needs_update = True
+
+    def remove_block(self, block):
+        del self.blocks[block.id]
+        self.block_neighbors_by_index_needs_update = True
+
+    def get_block_neighbors_by_index(self):
+        if self.block_neighbors_by_index_needs_update:
+            print("Updating block neighbors by index")
+            self.block_neighbors_by_index_needs_update = False
+            self.block_neighbors_by_index = np.zeros((len(self.blocks), 6), dtype=np.int32)
+            self.block_index_to_id = np.array(list(self.blocks.keys()), dtype=np.int32)
+            block_id_to_index = {block_id: index for index, block_id in enumerate(self.block_index_to_id)}
+            for i, b in enumerate(self.blocks.values()):
+                for direction in range(6):
+                    try:
+                        next_block = b.get_block(direction)
+                    except block.NoBlock:
+                        self.block_neighbors_by_index[i, direction] = -1
+                    else:
+                        self.block_neighbors_by_index[i, direction] = block_id_to_index[next_block.id]
+
+        return self.block_neighbors_by_index
 
 
 class WorldView:
@@ -81,14 +110,20 @@ class WorldView:
                           math.floor(new_player_position[2]) - self.last_player_block_pos[2])
         start_block = block.BlockView(self.player.block)
 
-        block_map = {}
-        WorldView.map_blocks(block_map, start_block.block)
+        #block_map = {}
+        #WorldView.map_blocks(block_map, start_block.block)
+
+        block_map = self.world.blocks
+
         #fast_block_map = numba.typed.Dict.empty(key_type=numba.types.int32, value_type=numba.types.int32)
         #for key, value in enumerate(block_map.keys()):
         #    fast_block_map[key] = value
-        fast_block_map = np.array(list(block_map.keys()), dtype=np.int32)
-        block_neighbor_ids = np.zeros((len(block_map), 6), dtype=np.int32)
-        WorldView.map_block_ids(block_map, block_neighbor_ids)
+        #fast_block_map = np.array(list(block_map.keys()), dtype=np.int32)
+        block_neighbor_ids = self.world.get_block_neighbors_by_index()
+        fast_block_map = self.world.block_index_to_id
+        #WorldView.map_block_ids(block_map, block_neighbor_ids)
+
+        start_block_id = np.where(fast_block_map == start_block.block.id)[0][0]
 
         #fast_new_blocks = np.zeros((BLOCK_RENDER_DISTANCE * 2 + 1, BLOCK_RENDER_DISTANCE * 2 + 1, BLOCK_RENDER_DISTANCE * 2 + 1), dtype=np.int32)
 
@@ -97,10 +132,10 @@ class WorldView:
         s = time.time()
 
         if USE_CUDA:
-            device_new_blocks = WorldView.calculate_ray(raycasting.device_array, block_neighbor_ids)
+            device_new_blocks = WorldView.calculate_ray(raycasting.device_array, block_neighbor_ids, start_block_id)
             fast_new_blocks = device_new_blocks.copy_to_host()
         else:
-            fast_new_blocks = WorldView.calculate_ray(raycasting.host_array, block_neighbor_ids)
+            fast_new_blocks = WorldView.calculate_ray(raycasting.host_array, block_neighbor_ids, start_block_id)
 
         if time.time() - s > 0.1:
             print("Calculating ray took:", time.time() - s)
@@ -134,9 +169,20 @@ class WorldView:
 
         for chunk_pos in self.chunks:
             if chunk_pos in chunks:
+                sections = {}
+
                 for block_pos in chunks[chunk_pos]:
-                    self.chunks[chunk_pos].update_heightmap(block_pos[0]%16, block_pos[1], block_pos[2]%16, self.get_block(*block_pos).block == self.AIR)
-                    self.player.conn.send_packet(play.BlockChange(block_pos[0], block_pos[1], block_pos[2], self.get_block(*block_pos).get_id()))
+                    section_pos = int((block_pos[1] - self.world.min_y) // 16)
+                    if section_pos not in sections:
+                        sections[section_pos] = []
+                    sections[section_pos].append(block_pos)
+
+                for section_pos in sections:
+                    # why would i update heightmaps if they aren't sent to the client?
+                    # heightmaps might be useful
+                    #self.player.conn.send_packet(play.BlockChange(block_pos[0], block_pos[1], block_pos[2], self.get_block(*block_pos).get_id()))
+                    block_list = [(*i, self.get_block(*i).get_id()) for i in sections[section_pos]]
+                    self.player.conn.send_packet(play.MultiBlockChange(chunk_pos[0], chunk_pos[1], section_pos, block_list))
 
         if time.time() - s > 0.1:
             print("Updating chunks took:", time.time() - s)
@@ -146,9 +192,9 @@ class WorldView:
         #raise Exception
 
     @staticmethod
-    @numba.guvectorize(["void(int32[:], int32[:,:], int32[:])"], "(n), (m,p) -> ()", target="cuda" if USE_CUDA else "parallel")
-    def calculate_ray(ray, blocks, out):
-        current_block = 0
+    @numba.guvectorize(["void(int32[:], int32[:,:], int32, int32[:])"], "(n), (m,p), () -> ()", target="cuda" if USE_CUDA else "parallel")
+    def calculate_ray(ray, blocks, start_id, out):
+        current_block = start_id
 
         x = BLOCK_RENDER_DISTANCE + 1
         y = BLOCK_RENDER_DISTANCE + 1
@@ -193,26 +239,31 @@ class WorldView:
 
     @staticmethod
     def map_blocks(blocks, current_block):
-        current_depth = [current_block]
-        current_depth_ids = [current_block.id]
-        next_depth = []
-        next_depth_ids = []
-        while len(current_depth) > 0:
-            for b in current_depth:
-                blocks[b.id] = b
-                for direction in range(6):
-                    try:
-                        next_block = b.get_block(direction)
-                    except block.NoBlock:
-                        continue
-                    else:
-                        if next_block.id not in blocks and next_block.id not in next_depth_ids and next_block.id not in current_depth_ids:
-                            next_depth.append(next_block)
-                            next_depth_ids.append(next_block.id)
-            current_depth = next_depth
-            current_depth_ids = next_depth_ids
-            next_depth = []
-            next_depth_ids = []
+        new_blocks = {current_block.id: current_block}
+        new_new_blocks = {}
+        processed_ids = set()
+
+        loop_starting = True
+
+        while len(processed_ids) != len(blocks) or loop_starting:
+            loop_starting = False
+            for b in new_blocks.values():
+                if b.id not in processed_ids:
+                    for direction in range(6):
+                        try:
+                            next_block = b.get_block(direction)
+                        except block.NoBlock:
+                            continue
+                        else:
+                            new_new_blocks[next_block.id] = next_block
+
+                    processed_ids.add(b.id)
+
+            blocks.update(new_new_blocks)
+            new_blocks = new_new_blocks
+            new_new_blocks = {}
+
+
 
 
         '''
@@ -231,6 +282,7 @@ class WorldView:
         '''
 
     @staticmethod
+    @profile
     def map_block_ids(blocks, block_neighbor_ids):
         block_id_to_array_id = {k: v for v, k in enumerate(blocks.keys())}
 
@@ -290,10 +342,24 @@ class WorldView:
 
     def load_chunks(self):
         mid_chunk_pos = (math.floor(self.player.client_position[0] // 16), math.floor(self.player.client_position[2] // 16))
-        distance = 5
+        distance = CHUNK_RENDER_DISTANCE
         for z in range(-distance, distance + 1):
             for x in range(-distance, distance + 1):
                 self.chunks[(mid_chunk_pos[0] + x, mid_chunk_pos[1] + z)] = ChunkView(self, mid_chunk_pos[0] + x, mid_chunk_pos[1] + z)
+
+    def change_chunk(self, x, z):
+        new_chunks = {}
+        for xx in range(-CHUNK_RENDER_DISTANCE, CHUNK_RENDER_DISTANCE + 1):
+            for zz in range(-CHUNK_RENDER_DISTANCE, CHUNK_RENDER_DISTANCE + 1):
+                if (x + xx, z + zz) in self.chunks:
+                    new_chunks[(x + xx, z + zz)] = self.chunks[(x + xx, z + zz)]
+                else:
+                    new_chunks[(x + xx, z + zz)] = ChunkView(self, x + xx, z + zz)
+        old_chunks = self.chunks
+        self.chunks = new_chunks
+        for chunk in old_chunks.keys():
+            if chunk not in self.chunks:
+                self.player.conn.send_packet(play.UnloadChunk(chunk[0], chunk[1]))
 
 
 #@numba.guvectorize(["int32(int32[:], int32[:, :])"], "(n), (m,p) -> ()", target="cuda")
